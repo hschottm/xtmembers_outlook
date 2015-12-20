@@ -268,10 +268,32 @@ class OutlookTools extends Backend
 			$this->redirect(str_replace('&key=outlook_import', '', $this->Environment->request));
 		}
 
+		$this->import('BackendUser', 'User');
+		$class = $this->User->uploader;
+
+		// See #4086
+		if (!class_exists($class))
+		{
+			$class = 'FileUpload';
+		}
+
+		$objUploader = new $class();
+
 		$this->Template = new BackendTemplate('be_import_outlook');
 
+		$class = $this->User->uploader;
+
+		// See #4086
+		if (!class_exists($class))
+		{
+			$class = 'FileUpload';
+		}
+
+		$objUploader = new $class();
+		$this->Template->markup = $objUploader->generateMarkup();
 		$this->Template->outlooksource = $this->getFileTreeWidget();
 		$this->Template->membergroup = $this->getMembergroupsWidget();
+		$this->Template->encoding = $this->getEncodingWidget();
 		$this->Template->newsletter = $this->getNewsletterWidget();
 		$this->Template->hrefBack = ampersand(str_replace('&key=outlook_import', '', $this->Environment->request));
 		$this->Template->goBack = $GLOBALS['TL_LANG']['MSC']['goBack'];
@@ -281,39 +303,113 @@ class OutlookTools extends Backend
 
 		if ($this->Input->post('FORM_SUBMIT') == 'tl_import_outlook')
 		{
-			$output = $this->importMembersFromCSV();
-			return $output;
+			$arrFiles = array();
+			$strFile = $this->Input->post('filepath');
+			
+			// Skip folders
+			if (is_dir(TL_ROOT . '/' . $strFile))
+			{
+				\Message::addError(sprintf($GLOBALS['TL_LANG']['ERR']['importFolder'], basename($strFile)));
+			}
+
+			$objFile = new \File($strFile, true);
+
+			if ($objFile->extension != 'txt' && $objFile->extension != 'csv')
+			{
+				\Message::addError(sprintf($GLOBALS['TL_LANG']['ERR']['filetype'], $objFile->extension));
+				continue;
+			}
+
+			$arrFiles[] = $strFile;
+
+			if (empty($arrFiles))
+			{
+				\Message::addError($GLOBALS['TL_LANG']['ERR']['emptyUpload']);
+				$this->reload();
+			}
+			else if (count($arrFiles) > 1)
+			{
+				\Message::addError($GLOBALS['TL_LANG']['ERR']['only_one_file']);
+				$this->reload();
+			}
+			else
+			{
+				$file = new \File($arrFiles[0], true);
+				$output = $this->importMembersFromCSV($file->path);
+				return $output;
+			}
 		}
 		// Create import form
-		if ($this->Input->post('FORM_SUBMIT') == 'tl_import_outlook_fileselection' && $this->blnSave)
+		if ($this->Input->post('FORM_SUBMIT') == 'tl_import_outlook_fileselection')
 		{
-			$filename = $this->Template->outlooksource->value;
-			$groups = $this->Template->membergroup->value;
-			$newsletters = $this->Template->newsletter->value;
-			// set session values
-			$this->Session->set('outlook_fileid', $filename);
-			$this->Session->set('outlook_groups', $groups);
-			$this->Session->set('outlook_newsletters', $newsletters);
-			$output = $this->importMembersFromCSV();
-			return $output;
+			$arrUploaded = $objUploader->uploadTo('system/tmp');
+			if (empty($arrUploaded))
+			{
+				\Message::addError($GLOBALS['TL_LANG']['ERR']['emptyUpload']);
+				$this->reload();
+			}
+
+			$arrFiles = array();
+
+			foreach ($arrUploaded as $strFile)
+			{
+				// Skip folders
+				if (is_dir(TL_ROOT . '/' . $strFile))
+				{
+					\Message::addError(sprintf($GLOBALS['TL_LANG']['ERR']['importFolder'], basename($strFile)));
+					continue;
+				}
+
+				$objFile = new \File($strFile, true);
+
+				if ($objFile->extension != 'txt' && $objFile->extension != 'csv')
+				{
+					\Message::addError(sprintf($GLOBALS['TL_LANG']['ERR']['filetype'], $objFile->extension));
+					continue;
+				}
+
+				$arrFiles[] = $strFile;
+			}
+			if (empty($arrFiles))
+			{
+				\Message::addError($GLOBALS['TL_LANG']['ERR']['emptyUpload']);
+				$this->reload();
+			}
+			else if (count($arrFiles) > 1)
+			{
+				\Message::addError($GLOBALS['TL_LANG']['ERR']['only_one_file']);
+				$this->reload();
+			}
+			else
+			{
+				$file = new \File($arrFiles[0], true);
+				$filename = $file->path;
+				$groups = $this->Template->membergroup->value;
+				$newsletters = $this->Template->newsletter->value;
+				// set session values
+				$this->Session->set('outlook_fileid', $filename);
+				$this->Session->set('outlook_groups', $groups);
+				$this->Session->set('outlook_newsletters', $newsletters);
+				$this->Session->set('outlook_encoding', $this->Input->post('encoding'));
+				$output = $this->importMembersFromCSV($file->path);
+				return $output;
+			}
 		}
 		return $this->Template->parse();
 	}
 
-	public function importMembersFromCSV()
+	public function importMembersFromCSV($filepath)
 	{
 				if ($this->Input->get('key') != 'outlook_import')
 				{
 					$this->redirect(str_replace('&key=outlook_import', '', $this->Environment->request));
 				}
 
-				$f = \FilesModel::findOneById($this->Session->get('outlook_fileid'));
-				$file = new \File($f->path);
-				$data = $file->getContent();
-				$chunks = preg_split("/((?<=\")|(?<=,))[\r\n]+((?=\")|(?=,))/", $data);
-				$fields = preg_split("/(,(?=,))|((?<=,),)|(,(?=\"))|((?<=\"),)/", $chunks[0]);
-//				$chunks = preg_split("/[\r\n]+/", $data);
-//				$fields = trimsplit(";", $chunks[0]);
+				$encoding = $this->Session->get('outlook_encoding');
+
+				$parser = new CSVParser(TL_ROOT . '/' . $filepath, (strlen($encoding) > 0) ? $encoding : 'UTF-8');
+				$fields = $parser->extractHeader();
+				
 				foreach ($fields as $idx => $field)
 				{
 					$fields[$idx] = trim(str_replace('"', '', $field));
@@ -344,47 +440,55 @@ class OutlookTools extends Backend
 						$i++;
 					}
 					$this->Config->update("\$GLOBALS['TL_CONFIG']['outlook_import']", serialize($import_settings));
-					foreach ($chunks as $idx => $line)
+					$idx = 1;
+					while ($entities = $parser->getDataArray())
 					{
-						if ($idx > 0)
+						foreach ($entities as $ent_idx => $ent_value)
 						{
-							$entities = preg_split("/(,(?=,))|((?<=,),)|(,(?=\"))|((?<=\"),)/", $line);
-//							$entities = trimsplit(";", $line);
-							foreach ($entities as $ent_idx => $ent_value)
+							$ent_value = preg_replace("/(^\")|(\"$)/", "", $ent_value);
+							$entities[$ent_idx] = $ent_value;
+						}
+						$where = array();
+						$where_values = array();
+						if ($idx_email >= 0)
+						{
+							if (strlen($entities[$idx_email]))
 							{
-								$ent_value = preg_replace("/(^\")|(\"$)/", "", $ent_value);
-								$entities[$ent_idx] = $ent_value;
+								array_push($where, 'email = ?');
+								array_push($where_values, $entities[$idx_email]);
 							}
-							$where = array();
-							$where_values = array();
-							if ($idx_email >= 0)
+						}
+						if ($idx_firstname >= 0)
+						{
+							if (strlen($entities[$idx_firstname]))
 							{
-								if (strlen(utf8_encode($entities[$idx_email])))
-								{
-									array_push($where, 'email = ?');
-									array_push($where_values, utf8_encode($entities[$idx_email]));
-								}
+								array_push($where, 'firstname = ?');
+								array_push($where_values, $entities[$idx_firstname]);
 							}
-							if ($idx_firstname >= 0)
+						}
+						if ($idx_lastname >= 0)
+						{
+							if (strlen($entities[$idx_lastname]))
 							{
-								if (strlen(utf8_encode($entities[$idx_firstname])))
-								{
-									array_push($where, 'firstname = ?');
-									array_push($where_values, utf8_encode($entities[$idx_firstname]));
-								}
+								array_push($where, 'lastname = ?');
+								array_push($where_values, $entities[$idx_lastname]);
 							}
-							if ($idx_lastname >= 0)
-							{
-								if (strlen(utf8_encode($entities[$idx_lastname])))
-								{
-									array_push($where, 'lastname = ?');
-									array_push($where_values, utf8_encode($entities[$idx_lastname]));
-								}
-							}
-							$where_text = join($where, ' AND ');
-							if (strlen($where_text)) $where_text = ' WHERE ' . $where_text;
+						}
+						$where_text = join($where, ' AND ');
+						if (strlen($where_text)) $where_text = ' WHERE ' . $where_text;
+						
+						$set = array();
+						$set['tstamp'] = time();
+						$set['dateAdded'] = time();
+						$objInsertStmt = $this->Database->prepare("INSERT INTO tl_member %s")
+							->set($set)
+							->execute();
+						if ($objInsertStmt->affectedRows)
+						{
+							$insertID = $objInsertStmt->insertId;
 							$member = null;
 							$member = FrontendUser::getInstance();
+							$member->findBy('id', $insertID);
 							$member->allGroups = deserialize($this->Session->get('outlook_groups'), true);
 							$member->newsletter = deserialize($this->Session->get('outlook_newsletters'), true);
 							$member->tstamp = time();
@@ -396,7 +500,6 @@ class OutlookTools extends Backend
 								$fieldname = $foundpair[1];
 								if (strlen($fieldname))
 								{
-									$field = utf8_encode($field);
 									switch ($fieldname)
 									{
 										case 'tags':
@@ -442,6 +545,7 @@ class OutlookTools extends Backend
 
 		<form action="'.ampersand($this->Environment->request, ENCODE_AMPERSANDS).'" id="tl_import_outlook" class="tl_form" method="post">
 		<div class="tl_formbody_edit">
+		<input type="hidden" name="filepath" value="'.$filepath.'" />
 		<input type="hidden" name="FORM_SUBMIT" value="tl_import_outlook" />
 		<input type="hidden" name="REQUEST_TOKEN" value="' . REQUEST_TOKEN . '" />
 
@@ -461,7 +565,7 @@ class OutlookTools extends Backend
 			$index = 0;
 			foreach ($fields as $field)
 			{
-				$objSelect = $this->getMemberFieldWidget($index, utf8_encode($field), $values[utf8_encode($field)]);
+				$objSelect = $this->getMemberFieldWidget($index, $field, $values[$field]);
 				$result .= '<tr>';
 				$result .= '<td>' . $objSelect->generateLabel() . '</td>';
 				$result .= '<td>' . $objSelect->generate() . '</td>';
@@ -581,13 +685,13 @@ class OutlookTools extends Backend
 
 		$widget->id = 'outlooksource';
 		$widget->name = 'outlooksource';
+		$widget->strTable = 'tl_member';
+		$widget->strField = 'outlooksource';
 		$widget->mandatory = true;
 		$GLOBALS['TL_DCA']['tl_member']['fields']['outlooksource']['eval']['fieldType'] = 'radio';
 		$GLOBALS['TL_DCA']['tl_member']['fields']['outlooksource']['eval']['files'] = true;
 		$GLOBALS['TL_DCA']['tl_member']['fields']['outlooksource']['eval']['filesOnly'] = true;
-		$GLOBALS['TL_DCA']['tl_member']['fields']['outlooksource']['eval']['extensions'] = 'csv';
-		$widget->strTable = 'tl_member';
-		$widget->strField = 'outlooksource';
+		$GLOBALS['TL_DCA']['tl_member']['fields']['outlooksource']['eval']['extensions'] = 'csv,txt';
 		$widget->value = $value;
 
 		$widget->label = $GLOBALS['TL_LANG']['tl_member']['outlooksource'][0];
@@ -601,6 +705,116 @@ class OutlookTools extends Backend
 		if ($this->Input->post('FORM_SUBMIT') == 'tl_import_outlook_fileselection')
 		{
 			$widget->validate();
+			if ($widget->hasErrors())
+			{
+				$this->blnSave = false;
+			}
+		}
+
+		return $widget;
+	}
+
+	protected function getEncodingWidget($value=null)
+	{
+		$widget = new SelectMenu();
+
+		$widget->id = 'encoding';
+		$widget->name = 'encoding';
+		$widget->mandatory = true;
+		$widget->value = $value;
+		$widget->label = $GLOBALS['TL_LANG']['tl_member']['encoding'][0];
+
+		if ($GLOBALS['TL_CONFIG']['showHelp'] && strlen($GLOBALS['TL_LANG']['tl_member']['encoding'][1]))
+		{
+			$widget->help = $GLOBALS['TL_LANG']['tl_member']['encoding'][1];
+		}
+
+		$arrOptions = array(
+			array('value' => 'UTF-8', 'label' => 'UTF-8'),
+			array('value' => 'ISO-8859-1', 'label' => 'ISO-8859-1 (Windows)'),
+				array('value' => 'UCS-4', 'label' => 'UCS-4'),
+				array('value' => 'UCS-4BE', 'label' => 'UCS-4BE'),
+				array('value' => 'UCS-4LE', 'label' => 'UCS-4LE'),
+				array('value' => 'UCS-2', 'label' => 'UCS-2'),
+				array('value' => 'UCS-2BE', 'label' => 'UCS-2BE'),
+				array('value' => 'UCS-2LE', 'label' => 'UCS-2LE'),
+				array('value' => 'UTF-32', 'label' => 'UTF-32'),
+				array('value' => 'UTF-32BE', 'label' => 'UTF-32BE'),
+				array('value' => 'UTF-32LE', 'label' => 'UTF-32LE'),
+				array('value' => 'UTF-16', 'label' => 'UTF-16'),
+				array('value' => 'UTF-16BE', 'label' => 'UTF-16BE'),
+				array('value' => 'UTF-16LE', 'label' => 'UTF-16LE'),
+				array('value' => 'UTF-7', 'label' => 'UTF-7'),
+				array('value' => 'UTF7-IMAP', 'label' => 'UTF7-IMAP'),
+				array('value' => 'ASCII', 'label' => 'ASCII'),
+				array('value' => 'EUC-JP', 'label' => 'EUC-JP'),
+				array('value' => 'SJIS', 'label' => 'SJIS'),
+				array('value' => 'eucJP-win', 'label' => 'eucJP-win'),
+				array('value' => 'SJIS-win', 'label' => 'SJIS-win'),
+				array('value' => 'ISO-2022-JP', 'label' => 'ISO-2022-JP'),
+				array('value' => 'ISO-2022-JP-MS', 'label' => 'ISO-2022-JP-MS'),
+				array('value' => 'CP932', 'label' => 'CP932'),
+				array('value' => 'CP51932', 'label' => 'CP51932'),
+				array('value' => 'JIS', 'label' => 'JIS'),
+				array('value' => 'JIS-ms', 'label' => 'JIS-ms'),
+				array('value' => 'CP50220', 'label' => 'CP50220'),
+				array('value' => 'CP50220raw', 'label' => 'CP50220raw'),
+				array('value' => 'CP50221', 'label' => 'CP50221'),
+				array('value' => 'CP50222', 'label' => 'CP50222'),
+				array('value' => 'ISO-8859-2', 'label' => 'ISO-8859-2'),
+				array('value' => 'ISO-8859-3', 'label' => 'ISO-8859-3'),
+				array('value' => 'ISO-8859-4', 'label' => 'ISO-8859-4'),
+				array('value' => 'ISO-8859-5', 'label' => 'ISO-8859-5'),
+				array('value' => 'ISO-8859-6', 'label' => 'ISO-8859-6'),
+				array('value' => 'ISO-8859-7', 'label' => 'ISO-8859-7'),
+				array('value' => 'ISO-8859-8', 'label' => 'ISO-8859-8'),
+				array('value' => 'ISO-8859-9', 'label' => 'ISO-8859-9'),
+				array('value' => 'ISO-8859-10', 'label' => 'ISO-8859-10'),
+				array('value' => 'ISO-8859-13', 'label' => 'ISO-8859-13'),
+				array('value' => 'ISO-8859-14', 'label' => 'ISO-8859-14'),
+				array('value' => 'ISO-8859-15', 'label' => 'ISO-8859-15'),
+				array('value' => 'byte2be', 'label' => 'byte2be'),
+				array('value' => 'byte2le', 'label' => 'byte2le'),
+				array('value' => 'byte4be', 'label' => 'byte4be'),
+				array('value' => 'byte4le', 'label' => 'byte4le'),
+				array('value' => 'BASE64', 'label' => 'BASE64'),
+				array('value' => 'HTML-ENTITIES', 'label' => 'HTML-ENTITIES'),
+				array('value' => '7bit', 'label' => '7bit'),
+				array('value' => '8bit', 'label' => '8bit'),
+				array('value' => 'EUC-CN', 'label' => 'EUC-CN'),
+				array('value' => 'CP936', 'label' => 'CP936'),
+				array('value' => 'HZ', 'label' => 'HZ'),
+				array('value' => 'EUC-TW', 'label' => 'EUC-TW'),
+				array('value' => 'CP950', 'label' => 'CP950'),
+				array('value' => 'BIG-5', 'label' => 'BIG-5'),
+				array('value' => 'EUC-KR', 'label' => 'EUC-KR'),
+				array('value' => 'UHC (CP949)', 'label' => 'UHC (CP949)'),
+				array('value' => 'ISO-2022-KR', 'label' => 'ISO-2022-KR'),
+				array('value' => 'Windows-1251 (CP1251)', 'label' => 'Windows-1251 (CP1251)'),
+				array('value' => 'Windows-1252 (CP1252)', 'label' => 'Windows-1252 (CP1252)'),
+				array('value' => 'CP866 (IBM866)', 'label' => 'CP866 (IBM866)'),
+				array('value' => 'KOI8-R', 'label' => 'KOI8-R'),
+				array('value' => 'ArmSCII-8 (ArmSCII8)', 'label' => 'ArmSCII-8 (ArmSCII8)')
+		);
+		if (version_compare(phpversion(), '5.4.0', '>=')) {
+			$arrOptions[] = array('value' => 'SJIS-mac', 'label' => 'SJIS-mac (alias: MacJapanese)');
+			$arrOptions[] = array('value' => 'SJIS-Mobile#DOCOMO', 'label' => 'SJIS-Mobile#DOCOMO (alias: SJIS-DOCOMO)');
+			$arrOptions[] = array('value' => 'SJIS-Mobile#KDDI', 'label' => 'SJIS-Mobile#KDDI (alias: SJIS-KDDI)');
+			$arrOptions[] = array('value' => 'SJIS-Mobile#SOFTBANK', 'label' => 'SJIS-Mobile#SOFTBANK (alias: SJIS-SOFTBANK)');
+			$arrOptions[] = array('value' => 'UTF-8-Mobile#DOCOMO', 'label' => 'UTF-8-Mobile#DOCOMO (alias: UTF-8-DOCOMO)');
+			$arrOptions[] = array('value' => 'UTF-8-Mobile#KDDI-A', 'label' => 'UTF-8-Mobile#KDDI-A');
+			$arrOptions[] = array('value' => 'UTF-8-Mobile#KDDI-B', 'label' => 'UTF-8-Mobile#KDDI-B (alias: UTF-8-KDDI)');
+			$arrOptions[] = array('value' => 'UTF-8-Mobile#SOFTBANK', 'label' => 'UTF-8-Mobile#SOFTBANK (alias: UTF-8-SOFTBANK)');
+			$arrOptions[] = array('value' => 'ISO-2022-JP-MOBILE#KDDI', 'label' => 'ISO-2022-JP-MOBILE#KDDI (alias: ISO-2022-JP-KDDI)');
+			$arrOptions[] = array('value' => 'GB18030', 'label' => 'GB18030');
+		}
+		$widget->options = $arrOptions;
+
+		// Valiate input
+		if (\Input::post('FORM_SUBMIT') == 'tl_import_outlook_fileselection')
+		{
+			$widget->validate();
+
 			if ($widget->hasErrors())
 			{
 				$this->blnSave = false;

@@ -35,4 +35,6 @@ $GLOBALS['TL_LANG']['tl_member']['info_export'] = 'Please assign the TYPOlight m
 $GLOBALS['TL_LANG']['tl_member']['outlooksource'] = array('File source', 'Please choose the Outlook export file (.csv) you want to import from the files directory.');
 $GLOBALS['TL_LANG']['tl_member']['outlook_import_groups'] = array('Member groups', 'Please select the member groups that should be associated with the imported members.');
 $GLOBALS['TL_LANG']['tl_member']['outlook_import_newsletter'] = array('Newsletter', 'Please select the newsletters that should be associated with the imported members.');
+$GLOBALS['TL_LANG']['tl_member']['encoding']         = array('Encoding', 'Please select the text encoding of your import data.');
+
 ?>

@@ -28,5 +28,7 @@ $GLOBALS['TL_LANG']['tl_member']['outlook_import_groups']['0'] = "Mitgliedergrup
 $GLOBALS['TL_LANG']['tl_member']['outlook_import_groups']['1'] = "Bitte wählen Sie die Mitgliedergruppen aus, die den importierten Mitgliedern zugewiesen werden sollen.";
 $GLOBALS['TL_LANG']['tl_member']['outlook_import_newsletter']['0'] = "Newsletter";
 $GLOBALS['TL_LANG']['tl_member']['outlook_import_newsletter']['1'] = "Bitte wählen Sie die Newsletter aus, die den importierten Mitgliedern zugewiesen werden sollen.";
+$GLOBALS['TL_LANG']['tl_member']['encoding']['0'] = "Zeichencodierung";
+$GLOBALS['TL_LANG']['tl_member']['encoding']['1'] = "Bitte geben Sie die Zeichencodierung Ihrer zu importierenden Daten an.";
  
 ?>

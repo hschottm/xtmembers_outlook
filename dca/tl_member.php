@@ -28,7 +28,7 @@ $GLOBALS['TL_DCA']['tl_member']['list']['global_operations']['outlook_import'] =
 $GLOBALS['TL_DCA']['tl_member']['fields']['outlooksource'] = array
 (
 	'label'                   => &$GLOBALS['TL_LANG']['tl_content']['source'],
-	'eval'                    => array('fieldType'=>'radio', 'files'=>true, 'filesOnly'=>true, 'extensions'=>'csv')
+	'eval'                    => array('fieldType'=>'radio', 'files'=>true, 'filesOnly'=>true, 'extensions'=>'csv,txt')
 );
 
 /**

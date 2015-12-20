@@ -18,6 +18,7 @@ ClassLoader::addClasses(array
 (
 	// Classes
 	'Contao\OutlookTools' => 'system/modules/xtmembers_outlook/classes/OutlookTools.php',
+	'Contao\CSVParser'    => 'system/modules/xtmembers_outlook/classes/CSVParser.php',
 ));
 
 
